@@ -31,5 +31,5 @@ def send_email(file_path, receiver_email):
     gmail.quit()
 
 
-if __name__ == "__main__":
-    send_email("images/54.png", "test@example.com")
+# if __name__ == "__main__":
+#     send_email("images/54.png", "test@example.com")

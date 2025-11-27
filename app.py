@@ -4,6 +4,7 @@ import cv2
 from threading import Thread
 from main import init_state, process_frame, remove_images
 from emailing import send_email
+import os
 
 if "motion_state" not in st.session_state:
     st.session_state.motion_state = init_state()
@@ -58,7 +59,7 @@ if st.session_state.camera_active:
             break
 
         # Process the frame through main.py logic
-        processed_frame, new_state, motion_ended, final_image = process_frame(
+        processed_frame, new_state, motion_ended, final_image, motion_detected_time  = process_frame(
             frame, st.session_state.motion_state, email=st.session_state.user_email
         )
 
@@ -74,10 +75,11 @@ if st.session_state.camera_active:
         if motion_ended and not st.session_state.email_sent:
 
             if st.session_state.user_email.strip() != "":
+                clean_path = os.path.normpath(final_image)
+
                 Thread(target=send_email,
-                       args=(final_image, st.session_state.user_email),
+                       args=(clean_path, st.session_state.user_email, motion_detected_time),
                        daemon=True).start()
-                Thread(target=remove_images, args=(st.session_state.user_email,)).start()
 
             st.session_state.email_sent = True
 

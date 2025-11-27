@@ -4,15 +4,17 @@ from io import BytesIO
 from email.message import EmailMessage
 from dotenv import load_dotenv
 import os
+from main import remove_images
+from threading import Thread
 load_dotenv()
 
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
 
-def send_email(file_path, receiver_email):
+def send_email(file_path, receiver_email, motion_detected_time):
     email_message = EmailMessage()
     email_message["Subject"] = "CamWatch AI | Motion Detected Alert!"
-    email_message.set_content("A motion activity has been tracked at so and so time. Please review the attached image.")
+    email_message.set_content(f"A motion activity has been tracked at {motion_detected_time}. Please review the attached image.")
 
     with open(file_path, "rb") as file:
         content = file.read()
@@ -29,6 +31,7 @@ def send_email(file_path, receiver_email):
     gmail.login(SENDER_EMAIL, SENDER_PASSWORD)
     gmail.sendmail(SENDER_EMAIL, receiver_email, email_message.as_string())
     gmail.quit()
+    Thread(target=remove_images, args=(receiver_email,), daemon=True).start()
 
 
 # if __name__ == "__main__":

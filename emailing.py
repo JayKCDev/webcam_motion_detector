@@ -8,8 +8,8 @@ from main import remove_images
 from threading import Thread
 load_dotenv()
 
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL") or st.secrets.get("SENDER_EMAIL")
+SENDER_PASSWORD = os.getenv("SENDER_PASSWORD") or st.secrets.get("SENDER_PASSWORD")
 
 def send_email(file_path, receiver_email, motion_detected_time):
     email_message = EmailMessage()

@@ -8,10 +8,15 @@ from main import init_state, process_frame, remove_images
 from emailing import send_email
 import os
 
-# Configure WebRTC with STUN server for better connectivity
-RTC_CONFIGURATION = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-)
+# Configure WebRTC with TURN servers for better connectivity
+RTC_CONFIGURATION = RTCConfiguration({
+    "iceServers": [
+        {"urls": ["stun:stun.l.google.com:19302"]},
+        {"urls": ["stun:stun1.l.google.com:19302"]},
+        {"urls": ["stun:stun2.l.google.com:19302"]},
+    ],
+    "iceTransportPolicy": "all",
+})
 
 
 class MotionTransformer(VideoTransformerBase):
@@ -21,31 +26,39 @@ class MotionTransformer(VideoTransformerBase):
         self.user_email = ""
 
     def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
+        try:
+            img = frame.to_ndarray(format="bgr24")
 
-        processed_frame, new_state, motion_ended, final_image, motion_time = process_frame(
-            img,
-            self.state,
-            email=self.user_email
-        )
-        self.state = new_state
+            processed_frame, new_state, motion_ended, final_image, motion_time = process_frame(
+                img,
+                self.state,
+                email=self.user_email
+            )
+            self.state = new_state
 
-        # Reset email flag if motion is detected again
-        if self.state["status_list"] and self.state["status_list"][-1] == 1:
-            self.email_sent = False
+            # Reset email flag if motion is detected again
+            if self.state["status_list"] and self.state["status_list"][
+                -1] == 1:
+                self.email_sent = False
 
-        if motion_ended and not self.email_sent:
-            if self.user_email.strip() != "":
-                Thread(
-                    target=send_email,
-                    args=(final_image, self.user_email, motion_time),
-                    daemon=True
-                ).start()
+            if motion_ended and not self.email_sent:
+                if self.user_email.strip() != "":
+                    Thread(
+                        target=send_email,
+                        args=(final_image, self.user_email, motion_time),
+                        daemon=True
+                    ).start()
 
-            self.email_sent = True
+                self.email_sent = True
 
-        # Return processed frame (with green boxes)
-        return av.VideoFrame.from_ndarray(processed_frame, format="bgr24")
+            # Return processed frame (with green boxes)
+            return av.VideoFrame.from_ndarray(processed_frame, format="bgr24")
+
+        except Exception as e:
+            # Log error but don't crash the stream
+            print(f"Frame processing error: {e}")
+            # Return original frame if processing fails
+            return frame
 
 
 # Initialize session state

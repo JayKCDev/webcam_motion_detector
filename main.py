@@ -53,15 +53,19 @@ def process_frame(frame, state, email=None):
         if rectangle.any():
             status = 1
             if email:  # Only store images if email is provided
-                user_folder = os.path.join("images", email)
-                os.makedirs(user_folder, exist_ok=True)
-                image_path = os.path.join(user_folder, f"{state['count']}.png")
-                cv2.imwrite(image_path, frame)
-                state["count"] += 1
-                all_images = sorted(glob.glob(f"images/{email}/*.png"))
-                if all_images:
-                    index = len(all_images) // 2
-                    state["detected_image"] = all_images[index]
+                try:
+                    user_folder = os.path.join("images", email)
+                    os.makedirs(user_folder, exist_ok=True)
+                    image_path = os.path.join(user_folder,
+                                              f"{state['count']}.png")
+                    cv2.imwrite(image_path, frame)
+                    state["count"] += 1
+                    all_images = sorted(glob.glob(f"images/{email}/*.png"))
+                    if all_images:
+                        index = len(all_images) // 2
+                        state["detected_image"] = all_images[index]
+                except Exception as e:
+                    print(f"Error saving image: {e}")
 
     state["status_list"].append(status)
     state["status_list"] = state["status_list"][-2:]

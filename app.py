@@ -1,87 +1,132 @@
-import time
 import streamlit as st
-import cv2
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, \
+    RTCConfiguration
+import av
+import numpy as np
 from threading import Thread
 from main import init_state, process_frame, remove_images
 from emailing import send_email
 import os
 
-if "motion_state" not in st.session_state:
-    st.session_state.motion_state = init_state()
+# Configure WebRTC with STUN server for better connectivity
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+)
 
-if "email_sent" not in st.session_state:
-    st.session_state.email_sent = False
 
-if "camera" not in st.session_state:
-    st.session_state.camera = None
+class MotionTransformer(VideoTransformerBase):
+    def __init__(self):
+        self.state = init_state()
+        self.email_sent = False
+        self.user_email = ""
 
-if "camera_active" not in st.session_state:
-    st.session_state.camera_active = False
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
 
+        processed_frame, new_state, motion_ended, final_image, motion_time = process_frame(
+            img,
+            self.state,
+            email=self.user_email
+        )
+        self.state = new_state
+
+        # Reset email flag if motion is detected again
+        if self.state["status_list"] and self.state["status_list"][-1] == 1:
+            self.email_sent = False
+
+        if motion_ended and not self.email_sent:
+            if self.user_email.strip() != "":
+                Thread(
+                    target=send_email,
+                    args=(final_image, self.user_email, motion_time),
+                    daemon=True
+                ).start()
+
+            self.email_sent = True
+
+        # Return processed frame (with green boxes)
+        return av.VideoFrame.from_ndarray(processed_frame, format="bgr24")
+
+
+# Initialize session state
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 
-# Placeholder for video frames
-frame_placeholder = st.empty()
+# Page configuration
+st.set_page_config(
+    page_title="CamWatch AI | Jay K.C. Portfolio",
+    layout="centered"
+)
 
 st.title("CamWatch AI")
+st.markdown("Real-time motion detection using your webcam")
 
-email_input = st.text_input("Enter your email (optional)")
-st.session_state.user_email = email_input
+# Create transformer instance first (before email input)
+transformer = MotionTransformer()
 
-if email_input.strip() == "":
-    st.info("If you provide an email, the app will capture an image of the detected motion and send it to you. The captured image will be automatically deleted when you close the tab, stop the camera, or when no new motion is detected.")
+# WebRTC streamer (placed before email input to check state)
+ctx = webrtc_streamer(
+    key="motion-detection",
+    video_transformer_factory=lambda: transformer,
+    rtc_configuration=RTC_CONFIGURATION,
+    media_stream_constraints={"video": True, "audio": False},
+    async_processing=True,
+)
 
-start_button = st.button("Start Camera")
-stop_button = st.button("Stop Camera")
+# Check if camera is active
+camera_active = ctx.state.playing if ctx.state else False
 
+# Email input - disabled when camera is active
+email_input = st.text_input(
+    "Enter your email (optional)",
+    value=st.session_state.user_email,
+    help="Receive motion detection alerts with captured images",
+    disabled=camera_active,
+    placeholder="example@email.com" if not camera_active else "Stop camera, to enter the email"
+)
 
-# Start camera
-if start_button and not st.session_state.camera_active:
-    st.session_state.camera = cv2.VideoCapture(0)
-    st.session_state.camera_active = True
-    st.session_state.motion_state = init_state()
+# Update session state only if camera is not active
+if not camera_active:
+    st.session_state.user_email = email_input
 
-# Stop camera
-if stop_button and st.session_state.camera_active:
-    st.session_state.camera_active = False
-    st.session_state.camera.release()
-    remove_images(st.session_state.user_email)
+# Set the email for the transformer
+transformer.user_email = st.session_state.user_email
 
-if st.session_state.camera_active:
+# Information message
+if camera_active:
+    st.warning(
+        "🔒 **Camera is active** - Email input is locked to prevent disruptions")
+    if st.session_state.user_email.strip() != "":
+        st.success(
+            f"✅ Motion alerts will be sent to: {st.session_state.user_email}")
+    else:
+        st.info(
+            "📧 No email configured - motion will be detected but no alerts will be sent")
+elif email_input.strip() == "":
+    st.info(
+        "💡 **Tip:** Provide an email to receive motion detection alerts with captured images. Images are automatically deleted when the session ends.")
+else:
+    st.success(f"✅ Motion alerts will be sent to: {email_input}")
 
-    # Real-time loop
-    while st.session_state.camera_active:
-        # Read a frame
-        success, frame = st.session_state.camera.read()
-        if not success:
-            st.warning("Failed to read from camera.")
-            break
+# Instructions
+with st.expander("ℹ️ How to use"):
+    st.markdown("""
+    1. **Enter your email** (optional) before starting the camera
+    2. **Allow camera access** when prompted by your browser
+    3. Click **START** to begin monitoring
+    4. The app will detect motion and draw green boxes around moving objects
+    5. If motion is detected and stops, you'll receive an email with a captured image
+    6. Click **STOP** when you're done
 
-        # Process the frame through main.py logic
-        processed_frame, new_state, motion_ended, final_image, motion_detected_time  = process_frame(
-            frame, st.session_state.motion_state, email=st.session_state.user_email
-        )
+    **Note:** 
+    - Email input is locked once the camera starts to prevent errors
+    - Your camera feed is processed in real-time
+    - Images are only saved if you provide an email address
+    """)
 
-        if st.session_state.motion_state["status_list"][-1] == 1:
-            st.session_state.email_sent = False
-
-        # Update the state
-        st.session_state.motion_state = new_state
-
-        # Display the processed frame
-        frame_placeholder.image(processed_frame, channels="BGR")
-
-        if motion_ended and not st.session_state.email_sent:
-
-            if st.session_state.user_email.strip() != "":
-                clean_path = os.path.normpath(final_image)
-
-                Thread(target=send_email,
-                       args=(clean_path, st.session_state.user_email, motion_detected_time),
-                       daemon=True).start()
-
-            st.session_state.email_sent = True
-
-        # Sleep to control FPS (smoothness)
-        time.sleep(0.03)
+# Footer
+st.markdown("---")
+st.markdown(
+    "<div style='text-align: center; color: gray;'><a href='https://www.linkedin.com/in/jaykcdev/' target='_blank' style='color: gray; text-decoration: none;'>Jay Karamchandani</a> | Portfolio Project</div>",
+    unsafe_allow_html=True
+)

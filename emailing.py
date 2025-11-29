@@ -8,8 +8,14 @@ from main import remove_images
 from threading import Thread
 load_dotenv()
 
-SENDER_EMAIL = os.getenv("SENDER_EMAIL") or st.secrets.get("SENDER_EMAIL")
-SENDER_PASSWORD = os.getenv("SENDER_PASSWORD") or st.secrets.get("SENDER_PASSWORD")
+try:
+    import streamlit as st
+    SENDER_EMAIL = st.secrets.get("SENDER_EMAIL", os.getenv("SENDER_EMAIL"))
+    SENDER_PASSWORD = st.secrets.get("SENDER_PASSWORD", os.getenv("SENDER_PASSWORD"))
+except:
+    # Fallback to environment variables if streamlit not available or secrets not configured
+    SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+    SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
 
 def send_email(file_path, receiver_email, motion_detected_time):
     email_message = EmailMessage()

@@ -107,8 +107,6 @@ transformer.user_email = st.session_state.user_email
 
 # Information message
 if camera_active:
-    st.warning(
-        "🔒 **Camera is active** - Email input is locked to prevent disruptions")
     if st.session_state.user_email.strip() != "":
         st.success(
             f"✅ Motion alerts will be sent to: {st.session_state.user_email}")

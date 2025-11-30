@@ -7,6 +7,7 @@ from threading import Thread, Lock
 from main import init_state, process_frame, remove_images
 from emailing import send_email
 import os
+from streamlit.components.v1 import html
 
 # Configure WebRTC with TURN servers for better connectivity
 RTC_CONFIGURATION = RTCConfiguration({
@@ -23,6 +24,7 @@ RTC_CONFIGURATION = RTCConfiguration({
 class EmailStorage:
     def __init__(self):
         self.email = ""
+        self.timezone = "UTC"
         self.lock = Lock()
 
     def set_email(self, email):
@@ -32,6 +34,14 @@ class EmailStorage:
     def get_email(self):
         with self.lock:
             return self.email
+
+    def set_timezone(self, timezone):
+        with self.lock:
+            self.timezone = timezone
+
+    def get_timezone(self):
+        with self.lock:
+            return self.timezone
 
 
 # Create GLOBAL email storage (not in session state)
@@ -47,18 +57,21 @@ class MotionTransformer(VideoTransformerBase):
         try:
             img = frame.to_ndarray(format="bgr24")
 
-            # Get email from global storage
+            # Get email and timezone from global storage
             user_email = GLOBAL_EMAIL_STORAGE.get_email()
+            user_timezone = GLOBAL_EMAIL_STORAGE.get_timezone()
 
             processed_frame, new_state, motion_ended, final_image, motion_time = process_frame(
                 img,
                 self.state,
-                email=user_email
+                email=user_email,
+                timezone=user_timezone
             )
             self.state = new_state
 
             # Reset email flag if motion is detected again
-            if self.state["status_list"] and self.state["status_list"][-1] == 1:
+            if self.state["status_list"] and self.state["status_list"][
+                -1] == 1:
                 self.email_sent = False
 
             if motion_ended and not self.email_sent:
@@ -83,12 +96,31 @@ class MotionTransformer(VideoTransformerBase):
 # Initialize session state
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
+if "user_timezone" not in st.session_state:
+    st.session_state.user_timezone = "UTC"
 
 # Page configuration
 st.set_page_config(
     page_title="CamWatch AI | Jay K.C. Portfolio",
     layout="centered"
 )
+
+# Detect user's timezone using JavaScript
+timezone_script = """
+<script>
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    window.parent.postMessage({type: 'streamlit:setComponentValue', value: timezone}, '*');
+</script>
+"""
+
+# Get timezone from browser
+user_timezone = html(timezone_script, height=0)
+if user_timezone:
+    st.session_state.user_timezone = user_timezone
+    GLOBAL_EMAIL_STORAGE.set_timezone(user_timezone)
+else:
+    # Fallback to session state timezone
+    GLOBAL_EMAIL_STORAGE.set_timezone(st.session_state.user_timezone)
 
 st.title("CamWatch AI")
 st.markdown("Real-time motion detection using your webcam")
@@ -134,7 +166,8 @@ else:
         st.info(
             "💡 **Tip:** Provide an email to receive motion detection alerts with captured images. Images are automatically deleted when the session ends.")
     else:
-        st.info(f"✅ Email configured: {email_input}. Click START to begin monitoring.")
+        st.info(
+            f"✅ Email configured: {email_input}. Click START to begin monitoring.")
 
 # Instructions
 with st.expander("ℹ️ How to use"):

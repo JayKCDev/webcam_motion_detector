@@ -3,6 +3,8 @@ import cv2
 import time
 import glob
 import shutil
+from datetime import datetime
+import pytz
 
 def init_state():
     state = {
@@ -14,7 +16,7 @@ def init_state():
     }
     return state
 
-def process_frame(frame, state, email=None):
+def process_frame(frame, state, email=None, timezone="UTC"):
     status = 0
     # Turn frame into grayscale for simplification and comparison
     grey_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -92,7 +94,13 @@ def process_frame(frame, state, email=None):
 
     if motion_ended:
         state["first_frame"] = grey_frame_gauss
-        motion_detected_time = time.strftime("%Y-%m-%d %I:%M:%S %p")
+        # Get time in user's timezone
+        try:
+            user_tz = pytz.timezone(timezone)
+            motion_detected_time = datetime.now(user_tz).strftime("%Y-%m-%d %I:%M:%S %p %Z")
+        except:
+            # Fallback to UTC if timezone is invalid
+            motion_detected_time = datetime.utcnow().strftime("%Y-%m-%d %I:%M:%S %p UTC")
 
     if final_image:
         try:

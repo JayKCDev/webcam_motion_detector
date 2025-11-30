@@ -47,30 +47,38 @@ def process_frame(frame, state, email=None):
     for contour in contours:
         if cv2.contourArea(contour) < 10000:
             continue
+
         x, y, w, h = cv2.boundingRect(contour)
         rectangle = cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0),
                                   3)
         if rectangle.any():
             status = 1
-            if email:  # Only store images if email is provided
+            if email and email.strip():  # Only store images if email is provided
                 try:
                     user_folder = os.path.join("images", email)
                     os.makedirs(user_folder, exist_ok=True)
+
                     image_path = os.path.join(user_folder,
                                               f"{state['count']}.png")
-                    cv2.imwrite(image_path, frame)
-                    state["count"] += 1
-                    all_images = sorted(glob.glob(f"images/{email}/*.png"))
-                    if all_images:
-                        index = len(all_images) // 2
-                        state["detected_image"] = all_images[index]
+
+                    success = cv2.imwrite(image_path, frame)
+                    if success:
+                        state["count"] += 1
+                        all_images = sorted(glob.glob(f"{user_folder}/*.png"))
+                        if all_images:
+                            index = len(all_images) // 2
+                            state["detected_image"] = all_images[index]
+                    else:
+                        print("[ERROR] cv2.imwrite returned False!")
                 except Exception as e:
-                    print(f"Error saving image: {e}")
+                    print(f"[ERROR] Exception saving image: {e}")
+                    import traceback
+                    traceback.print_exc()
 
     state["status_list"].append(status)
     state["status_list"] = state["status_list"][-2:]
 
-    # Detect motion end event (NO STATE MUTATION)
+    # Detect motion end event
     motion_ended = False
     final_image = None
     motion_detected_time = None
@@ -78,26 +86,31 @@ def process_frame(frame, state, email=None):
     if len(state["status_list"]) == 2:
         if state["status_list"][0] == 1 and state["status_list"][1] == 0:
             motion_ended = True
-            final_image = os.path.normpath(state["detected_image"])
+            # Only set final_image if detected_image exists
+            if state["detected_image"] is not None:
+                final_image = os.path.normpath(state["detected_image"])
 
     if motion_ended:
         state["first_frame"] = grey_frame_gauss
         motion_detected_time = time.strftime("%Y-%m-%d %I:%M:%S %p")
 
     if final_image:
-        image = cv2.imread(final_image)
-        if image is not None:
-            cv2.putText(
-                image,
-                motion_detected_time,
-                (10, image.shape[0] - 10),
-                cv2.FONT_HERSHEY_PLAIN,
-                1.2,
-                (0, 0, 255),  # green text
-                2,
-                cv2.LINE_AA
-            )
-            cv2.imwrite(final_image, image)
+        try:
+            image = cv2.imread(final_image)
+            if image is not None:
+                cv2.putText(
+                    image,
+                    motion_detected_time,
+                    (10, image.shape[0] - 10),
+                    cv2.FONT_HERSHEY_PLAIN,
+                    1.2,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA
+                )
+                cv2.imwrite(final_image, image)
+        except Exception as e:
+            print(f"[ERROR] Error adding timestamp to image: {e}")
 
     return frame, state, motion_ended, final_image, motion_detected_time
 
@@ -112,4 +125,4 @@ def remove_images(user_email):
     try:
         shutil.rmtree(user_folder)
     except Exception as e:
-        print("Error deleting folder:", e)
+        print(f"[ERROR] Error deleting folder: {e}")

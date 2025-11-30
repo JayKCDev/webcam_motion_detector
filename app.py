@@ -3,7 +3,7 @@ from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, \
     RTCConfiguration
 import av
 import numpy as np
-from threading import Thread
+from threading import Thread, Lock
 from main import init_state, process_frame, remove_images
 from emailing import send_email
 import os
@@ -19,33 +19,53 @@ RTC_CONFIGURATION = RTCConfiguration({
 })
 
 
+# Shared email storage that works across threads
+class EmailStorage:
+    def __init__(self):
+        self.email = ""
+        self.lock = Lock()
+
+    def set_email(self, email):
+        with self.lock:
+            self.email = email
+
+    def get_email(self):
+        with self.lock:
+            return self.email
+
+
+# Create GLOBAL email storage (not in session state)
+GLOBAL_EMAIL_STORAGE = EmailStorage()
+
+
 class MotionTransformer(VideoTransformerBase):
     def __init__(self):
         self.state = init_state()
         self.email_sent = False
-        self.user_email = ""
 
     def recv(self, frame):
         try:
             img = frame.to_ndarray(format="bgr24")
 
+            # Get email from global storage
+            user_email = GLOBAL_EMAIL_STORAGE.get_email()
+
             processed_frame, new_state, motion_ended, final_image, motion_time = process_frame(
                 img,
                 self.state,
-                email=self.user_email
+                email=user_email
             )
             self.state = new_state
 
             # Reset email flag if motion is detected again
-            if self.state["status_list"] and self.state["status_list"][
-                -1] == 1:
+            if self.state["status_list"] and self.state["status_list"][-1] == 1:
                 self.email_sent = False
 
             if motion_ended and not self.email_sent:
-                if self.user_email.strip() != "":
+                if user_email.strip() != "":
                     Thread(
                         target=send_email,
-                        args=(final_image, self.user_email, motion_time),
+                        args=(final_image, user_email, motion_time),
                         daemon=True
                     ).start()
 
@@ -56,7 +76,6 @@ class MotionTransformer(VideoTransformerBase):
 
         except Exception as e:
             # Log error but don't crash the stream
-            print(f"Frame processing error: {e}")
             # Return original frame if processing fails
             return frame
 
@@ -74,13 +93,26 @@ st.set_page_config(
 st.title("CamWatch AI")
 st.markdown("Real-time motion detection using your webcam")
 
-# Create transformer instance first (before email input)
-transformer = MotionTransformer()
+# Email input BEFORE webrtc_streamer
+email_input = st.text_input(
+    "Enter your email (optional)",
+    value=st.session_state.user_email,
+    help="Receive motion detection alerts with captured images",
+    placeholder="example@email.com"
+)
 
-# WebRTC streamer (placed before email input to check state)
+# Update email immediately when changed
+if email_input != st.session_state.user_email:
+    st.session_state.user_email = email_input
+    GLOBAL_EMAIL_STORAGE.set_email(email_input)
+
+# Always sync the global storage with session state
+GLOBAL_EMAIL_STORAGE.set_email(st.session_state.user_email)
+
+# WebRTC streamer
 ctx = webrtc_streamer(
     key="motion-detection",
-    video_transformer_factory=lambda: transformer,
+    video_transformer_factory=MotionTransformer,
     rtc_configuration=RTC_CONFIGURATION,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
@@ -89,22 +121,6 @@ ctx = webrtc_streamer(
 # Check if camera is active
 camera_active = ctx.state.playing if ctx.state else False
 
-# Email input - disabled when camera is active
-email_input = st.text_input(
-    "Enter your email (optional)",
-    value=st.session_state.user_email,
-    help="Receive motion detection alerts with captured images",
-    disabled=camera_active,
-    placeholder="example@email.com" if not camera_active else "Stop camera, to enter the email"
-)
-
-# Update session state only if camera is not active
-if not camera_active:
-    st.session_state.user_email = email_input
-
-# Set the email for the transformer
-transformer.user_email = st.session_state.user_email
-
 # Information message
 if camera_active:
     if st.session_state.user_email.strip() != "":
@@ -112,12 +128,13 @@ if camera_active:
             f"✅ Motion alerts will be sent to: {st.session_state.user_email}")
     else:
         st.info(
-            "📧 No email configured - motion will be detected but no alerts will be sent")
-elif email_input.strip() == "":
-    st.info(
-        "💡 **Tip:** Provide an email to receive motion detection alerts with captured images. Images are automatically deleted when the session ends.")
+            "📧 No email provided - motion will be detected but no alerts will be sent")
 else:
-    st.success(f"✅ Motion alerts will be sent to: {email_input}")
+    if email_input.strip() == "":
+        st.info(
+            "💡 **Tip:** Provide an email to receive motion detection alerts with captured images. Images are automatically deleted when the session ends.")
+    else:
+        st.info(f"✅ Email configured: {email_input}. Click START to begin monitoring.")
 
 # Instructions
 with st.expander("ℹ️ How to use"):

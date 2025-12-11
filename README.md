@@ -212,3 +212,11 @@ This portfolio project demonstrates expertise in:
 - Images are stored locally and automatically cleaned up
 - Email credentials can be stored securely using environment variables or Streamlit secrets
 - WebRTC uses STUN servers for connectivity without exposing sensitive data
+
+## Author
+
+**Jay Karamchandani**
+
+- Email: jay.kc.fullstackdeveloper@gmail.com
+- LinkedIn: [@jaykcdev](https://www.linkedin.com/in/jaykcdev/)
+- GitHub: [@JayKCDev](https://github.com/JayKCDev)
